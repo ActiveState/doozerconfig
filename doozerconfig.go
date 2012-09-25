@@ -1,3 +1,6 @@
+// TODO: libraries should not use log.Fatal
+// TODO: ... perhaps not log.Printf either.
+
 package doozerconfig
 
 import (
@@ -5,16 +8,18 @@ import (
 	"github.com/ActiveState/doozer"
 	"encoding/json"
 	"errors" // TODO: create custom errors
+	"log"
 )
 
 type DoozerConfig struct {
 	conn        *doozer.Conn
 	configStruct interface{}
 	prefix       string
+	fields       map[string]reflect.Value
 }
 
 func New(conn *doozer.Conn, configStruct interface{}, prefix string) *DoozerConfig{
-	return &DoozerConfig{conn, configStruct, prefix}
+	return &DoozerConfig{conn, configStruct, prefix, make(map[string]reflect.Value)}
 }
 
 // initialize the config data by loading from doozer.
@@ -32,30 +37,75 @@ func (c *DoozerConfig) Load() error {
 			// this field is not supposed to be loaded from doozer
 			continue
 		}
-		data, _, err := c.conn.Get(c.prefix + path, nil)
+		path = c.prefix + path
+		data, _, err := c.conn.Get(path, nil)
 		if err != nil {
 			return err
 		}
 
-		// decode the json into interface{} type
-		var val2 interface{}
-		json.Unmarshal(data, &val2)
+		c.fields[path] = field
 		
 		// extract the value based on the field type
-		// TODO: simplify this using interface{}
-		switch(field.Kind()){
-		case reflect.Int:
-			var val int64
-			json.Unmarshal(data, &val)
-			field.SetInt(val)
-		case reflect.String:
-			var val string
-			json.Unmarshal(data, &val)
-			field.SetString(val)
-		default:
-			return errors.New("doozerconfig: unsupported field " + string(field.Kind()))
+		err = setFieldWithData(field, data)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+
+func (c *DoozerConfig) Monitor(glob string, rev int64) {
+	for evt := range doozerWatch(c.conn, glob, rev) {
+		if field, ok := c.fields[evt.Path]; ok {
+			err := setFieldWithData(field, evt.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("New Config: %+v\n", c.configStruct)
+		}
+	}
+}
+
+
+// set this struct field with data json-decoded as the same tyhpe
+func setFieldWithData(field reflect.Value, data []byte) error {
+	// TODO: simplify this using interface{}
+	switch(field.Kind()){
+	case reflect.Int:
+		var val int64
+		json.Unmarshal(data, &val)
+		field.SetInt(val)
+	case reflect.String:
+		var val string
+		json.Unmarshal(data, &val)
+		field.SetString(val)
+	default:
+		return errors.New("doozerconfig: unsupported field " + string(field.Kind()))
+	}
+	return nil
+}
+
+
+// monitor mutations on the given glob of keys and report them in the
+// returned channel
+func doozerWatch(c *doozer.Conn, glob string, rev int64) chan doozer.Event {
+	ch := make(chan doozer.Event)
+	go func() {
+		for {
+			evt, err := c.Wait(glob, rev)
+			if err != nil {
+				close(ch)
+				// FIXME: on doozer watch errors, the entire basin process
+				// must not go down. figure a way to report the error in
+				// console and silently proceed.
+				log.Fatal(err)
+				return
+			}
+			rev = evt.Rev + 1
+			ch <- evt
+		}
+	}()
+	return ch
 }
 
