@@ -1,6 +1,3 @@
-// TODO: libraries should not use log.Fatal
-// TODO: ... perhaps not log.Printf either.
-
 package doozerconfig
 
 import (
@@ -15,14 +12,19 @@ type DoozerConfig struct {
 	configStruct interface{}
 	prefix       string
 	fields       map[string]reflect.Value
+	fieldTypes   map[string]reflect.StructField
 }
 
+// New returns a new DoozerConfig given doozer connection, struct object and
+// doozer path prefix.
 func New(conn *doozer.Conn, configStruct interface{}, prefix string) *DoozerConfig{
-	return &DoozerConfig{conn, configStruct, prefix, make(map[string]reflect.Value)}
+	return &DoozerConfig{
+			conn, configStruct, prefix, 
+			make(map[string]reflect.Value),
+			make(map[string]reflect.StructField)}
 }
 
-// initialize the config data by loading from doozer.
-// will return error if any of the config is not found
+// Load populates the struct with config values from doozer.
 func (c *DoozerConfig) Load() error {
 	elem := reflect.ValueOf(c.configStruct).Elem()
 	elemType := elem.Type()
@@ -33,7 +35,8 @@ func (c *DoozerConfig) Load() error {
 		// read json-encoded bytes from doozer
 		path := fieldType.Tag.Get("doozer")
 		if path == "" {
-			// this field is not supposed to be loaded from doozer
+			// this field is not supposed to be loaded from doozer because the
+			// user did not provide a struct tag with doozer key for it.
 			continue
 		}
 		path = c.prefix + path
@@ -43,8 +46,9 @@ func (c *DoozerConfig) Load() error {
 		}
 
 		c.fields[path] = field
-		
-		// extract the value based on the field type
+		c.fieldTypes[path] = fieldType
+
+		// decode the json and directly set the struct field		
 		err = unmarshalIntoValue(data, field)
 		if err != nil {
 			return err
@@ -53,18 +57,28 @@ func (c *DoozerConfig) Load() error {
 	return nil
 }
 
+// pair of field and value, of a struct field
+type FieldPair struct {
+	Value reflect.Value
+	Field reflect.StructField
+}
 
-func (c *DoozerConfig) Monitor(glob string, rev int64) error {
-	for evt := range doozerWatch(c.conn, glob, rev) {
-		if field, ok := c.fields[evt.Path]; ok {
-			err := unmarshalIntoValue(evt.Body, field)
-			if err != nil {
-				return err
+// Monitor monitors new mutations in the given path glob and, if they are
+// config keys, updates the struct fields accordingly.
+func (c *DoozerConfig) Monitor(glob string, rev int64) chan FieldPair {
+	ch := make(chan FieldPair)
+	go func(){
+		for evt := range doozerWatch(c.conn, glob, rev) {
+			if field, ok := c.fields[evt.Path]; ok {
+				err := unmarshalIntoValue(evt.Body, field)
+				if err != nil {
+					log.Fatal(err)
+				}
+				ch <- FieldPair{field, c.fieldTypes[evt.Path]}
 			}
-			log.Printf("New Config: %+v\n", c.configStruct)
 		}
-	}
-	return nil
+	}()
+	return ch
 }
 
 
@@ -84,10 +98,8 @@ func doozerWatch(c *doozer.Conn, glob string, rev int64) chan doozer.Event {
 			evt, err := c.Wait(glob, rev)
 			if err != nil {
 				close(ch)
-				// FIXME: on doozer watch errors, the entire basin process
-				// must not go down. figure a way to report the error in
-				// console and silently proceed.
-				// besides, it is not the library's job to crash a program.
+				// FIXME: use error channels; a library should not crash the
+				// program.
 				log.Fatal(err)
 				return
 			}
