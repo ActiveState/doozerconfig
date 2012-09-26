@@ -2,7 +2,9 @@
 
 ## What Is It?
 
-doozerconfig is a Go package to load json-encoded configuration from doozer into a native Go struct type. It also monitors for any changes to the configuration and automatically updates the struct.
+doozerconfig is a Go package for managing json-encoded configuration in doozer. Configuration is directly loaded into a Go struct (see example below). Using struct tags to define the doozer path, the package will automatically read, json-decode and assign the values to the corresponding struct fields. You can also watch for future changes to doozer config and have the struct automatically update.
+
+In future, this package will also provide a way to write configuration back to doozer.
 
 ## Example
 
@@ -13,34 +15,34 @@ var Config struct {
     NatsUri          string `doozer:"cloud_controller/config/mbus"`
     RedisHost        string `doozer:"cloud_controller/config/redis/host"`
     RedisPort        int    `doozer:"cloud_controller/config/redis/port"`
-    RedisUri         string
-    Verbose          bool
+    RedisUri         string // not in doozer
+    Verbose          bool   // not in doozer
 }
 
 func init() {
     doozer, err := doozer.Dial(getDoozerURI())
     if err != nil {
-	log.Fatal(err)
+        log.Fatal(err)
     }
 
     headRev, err := doozer.Rev()
     if err != nil {
-	log.Fatal(err)
+        log.Fatal(err)
     }
 
     cfg := doozerconfig.New(doozer, &Config, "/proc/")
     err = cfg.Load()  // this populates the Config struct
     if err != nil {
-	log.Fatal(err)
+        log.Fatal(err)
     }
     Config.RedisUri = fmt.Sprintf("%s:%d", Config.RedisHost, Config.RedisPort)
 
-    // watch to live changes to doozer config
+    // watch for live changes to doozer config
     go func() {
         // Monitor updates the struct on any relevant changes in doozer
-	for change := range cfg.Monitor("/proc/logyard/config/*", headRev) {
-	    log.Printf("config changed in doozer; %s=%v\n", change.Field.Name, change.Value.Interface())
-	}
+        for change := range cfg.Monitor("/proc/logyard/config/*", headRev) {
+            log.Printf("config changed in doozer; %s=%v\n", change.Field.Name, change.Value.Interface())
+        }
     }()
 }
 ```
