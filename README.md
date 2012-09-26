@@ -41,7 +41,7 @@ func init() {
     go func() {
         // Monitor updates the struct on any relevant changes in doozer
         for change := range cfg.Monitor("/proc/logyard/config/*", headRev) {
-            log.Printf("config changed in doozer; %s=%v\n", change.Field.Name, change.Value.Interface())
+            log.Printf("config changed in doozer; %s=%v\n", change.Name, change.Value)
         }
     }()
 }

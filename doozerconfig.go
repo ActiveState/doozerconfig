@@ -1,15 +1,15 @@
 package doozerconfig
 
 import (
-	"reflect"
-	"github.com/ActiveState/doozer"
 	"encoding/json"
-	"log"
 	"fmt"
+	"github.com/ActiveState/doozer"
+	"log"
+	"reflect"
 )
 
 type DoozerConfig struct {
-	conn        *doozer.Conn
+	conn         *doozer.Conn
 	configStruct interface{}
 	prefix       string
 	fields       map[string]reflect.Value
@@ -18,11 +18,11 @@ type DoozerConfig struct {
 
 // New returns a new DoozerConfig given doozer connection, struct object and
 // doozer path prefix.
-func New(conn *doozer.Conn, configStruct interface{}, prefix string) *DoozerConfig{
+func New(conn *doozer.Conn, configStruct interface{}, prefix string) *DoozerConfig {
 	return &DoozerConfig{
-			conn, configStruct, prefix, 
-			make(map[string]reflect.Value),
-			make(map[string]reflect.StructField)}
+		conn, configStruct, prefix,
+		make(map[string]reflect.Value),
+		make(map[string]reflect.StructField)}
 }
 
 // Load populates the struct with config values from doozer.
@@ -62,37 +62,36 @@ func (c *DoozerConfig) Load() error {
 	return nil
 }
 
-// pair of field and value, of a struct field
-type FieldPair struct {
-	Value reflect.Value
-	Field reflect.StructField
+// ChangedField represents the struct field which was changed
+type ChangedField struct {
+	Name  string      // Name of the field
+	Value interface{} // New value that was set
 }
 
 // Monitor monitors new mutations in the given path glob and, if they are
-// config keys, updates the struct fields accordingly.
-func (c *DoozerConfig) Monitor(glob string, rev int64) chan FieldPair {
-	ch := make(chan FieldPair)
-	go func(){
+// config keys, updates the struct fields accordingly. Will also notify of the
+// update via the returned channel of ChangedField.
+func (c *DoozerConfig) Monitor(glob string, rev int64) chan ChangedField {
+	ch := make(chan ChangedField)
+	go func() {
 		for evt := range doozerWatch(c.conn, glob, rev) {
 			if field, ok := c.fields[evt.Path]; ok {
 				err := unmarshalIntoValue(evt.Body, field)
 				if err != nil {
 					log.Fatal(err)
 				}
-				ch <- FieldPair{field, c.fieldTypes[evt.Path]}
+				ch <- ChangedField{c.fieldTypes[evt.Path].Name, field.Interface()}
 			}
 		}
 	}()
 	return ch
 }
 
-
 // a version of json.Unmarshal that unmarshalls into a reflect.Value type
 func unmarshalIntoValue(data []byte, field reflect.Value) error {
 	fieldInterface := field.Addr().Interface()
 	return json.Unmarshal(data, &fieldInterface)
 }
-
 
 // monitor mutations on the given glob of keys and report them in the
 // returned channel
@@ -114,4 +113,3 @@ func doozerWatch(c *doozer.Conn, glob string, rev int64) chan doozer.Event {
 	}()
 	return ch
 }
-
