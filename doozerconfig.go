@@ -5,6 +5,7 @@ import (
 	"github.com/ActiveState/doozer"
 	"encoding/json"
 	"log"
+	"fmt"
 )
 
 type DoozerConfig struct {
@@ -40,9 +41,13 @@ func (c *DoozerConfig) Load() error {
 			continue
 		}
 		path = c.prefix + path
-		data, _, err := c.conn.Get(path, nil)
+		data, rev, err := c.conn.Get(path, nil)
 		if err != nil {
 			return err
+		}
+		// for some reason, Get returns rev=0 if the path doesn't exist
+		if rev == 0 {
+			return fmt.Errorf("doozerconfig: key %s does not exist in doozer", path)
 		}
 
 		c.fields[path] = field
@@ -51,7 +56,7 @@ func (c *DoozerConfig) Load() error {
 		// decode the json and directly set the struct field		
 		err = unmarshalIntoValue(data, field)
 		if err != nil {
-			return err
+			return fmt.Errorf("doozerconfig: error decoding json from doozer[%s]: %v", path, err)
 		}
 	}
 	return nil
