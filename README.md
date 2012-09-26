@@ -39,10 +39,12 @@ func init() {
 
     // watch for live changes to doozer config
     go func() {
-        // Monitor updates the struct on any relevant changes in doozer
-        for change := range cfg.Monitor("/proc/logyard/config/*", headRev) {
-            log.Printf("config changed in doozer; %s=%v\n", change.Name, change.Value)
-        }
+        cfg.Monitor("/proc/logyard/config/*", headRev, func(name string, value interface{}, err error) {
+            if err != nil {
+                log.Fatal(err)
+            }
+            log.Printf("config changed in doozer; %s=%v\n", name, value)            
+        }) 
     }()
 }
 ```

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ActiveState/doozer"
-	"log"
 	"reflect"
 )
 
@@ -62,29 +61,25 @@ func (c *DoozerConfig) Load() error {
 	return nil
 }
 
-// ChangedField represents the struct field which was changed
-type ChangedField struct {
-	Name  string      // Name of the field
-	Value interface{} // New value that was set
-}
-
-// Monitor monitors new mutations in the given path glob and, if they are
-// config keys, updates the struct fields accordingly. Will also notify of the
-// update via the returned channel of ChangedField.
-func (c *DoozerConfig) Monitor(glob string, rev int64) chan ChangedField {
-	ch := make(chan ChangedField)
-	go func() {
-		for evt := range doozerWatch(c.conn, glob, rev) {
-			if field, ok := c.fields[evt.Path]; ok {
-				err := unmarshalIntoValue(evt.Body, field)
-				if err != nil {
-					log.Fatal(err)
-				}
-				ch <- ChangedField{c.fieldTypes[evt.Path].Name, field.Interface()}
+// Monitor listens for config changes in doozer and updates the struct. A
+// callback function can be passed to get notified of the changes made and errors.
+func (c *DoozerConfig) Monitor(glob string, rev int64, callback func(string, interface{}, error)) {
+	doozerWatch(c.conn, glob, rev, func(evt doozer.Event, err error) {
+		if err != nil {
+			callback("", nil, err)
+			return // on doozer error, return immediately.
+		}
+		if field, ok := c.fields[evt.Path]; ok {
+			err := unmarshalIntoValue(evt.Body, field)
+			if err != nil {
+				// on json errors, continue monitoring for more changes, but
+				// report the error to the caller.
+				callback("", nil, err)
+			} else {
+				callback(c.fieldTypes[evt.Path].Name, field.Interface(), nil)
 			}
 		}
-	}()
-	return ch
+	})
 }
 
 // a version of json.Unmarshal that unmarshalls into a reflect.Value type
@@ -95,21 +90,13 @@ func unmarshalIntoValue(data []byte, field reflect.Value) error {
 
 // monitor mutations on the given glob of keys and report them in the
 // returned channel
-func doozerWatch(c *doozer.Conn, glob string, rev int64) chan doozer.Event {
-	ch := make(chan doozer.Event)
-	go func() {
-		for {
-			evt, err := c.Wait(glob, rev)
-			if err != nil {
-				close(ch)
-				// FIXME: use error channels; a library should not crash the
-				// program.
-				log.Fatal(err)
-				return
-			}
-			rev = evt.Rev + 1
-			ch <- evt
+func doozerWatch(c *doozer.Conn, glob string, rev int64, callback func(doozer.Event, error)) {
+	for {
+		evt, err := c.Wait(glob, rev)
+		callback(evt, err)
+		if err != nil {
+			return
 		}
-	}()
-	return ch
+		rev = evt.Rev + 1
+	}
 }
