@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"github.com/ActiveState/doozer"
 	"encoding/json"
-	"errors" // TODO: create custom errors
 	"log"
 )
 
@@ -46,7 +45,7 @@ func (c *DoozerConfig) Load() error {
 		c.fields[path] = field
 		
 		// extract the value based on the field type
-		err = setFieldWithData(field, data)
+		err = unmarshalIntoValue(data, field)
 		if err != nil {
 			return err
 		}
@@ -55,35 +54,24 @@ func (c *DoozerConfig) Load() error {
 }
 
 
-func (c *DoozerConfig) Monitor(glob string, rev int64) {
+func (c *DoozerConfig) Monitor(glob string, rev int64) error {
 	for evt := range doozerWatch(c.conn, glob, rev) {
 		if field, ok := c.fields[evt.Path]; ok {
-			err := setFieldWithData(field, evt.Body)
+			err := unmarshalIntoValue(evt.Body, field)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			log.Printf("New Config: %+v\n", c.configStruct)
 		}
 	}
+	return nil
 }
 
 
-// set this struct field with data json-decoded as the same tyhpe
-func setFieldWithData(field reflect.Value, data []byte) error {
-	// TODO: simplify this using interface{}
-	switch(field.Kind()){
-	case reflect.Int:
-		var val int64
-		json.Unmarshal(data, &val)
-		field.SetInt(val)
-	case reflect.String:
-		var val string
-		json.Unmarshal(data, &val)
-		field.SetString(val)
-	default:
-		return errors.New("doozerconfig: unsupported field " + string(field.Kind()))
-	}
-	return nil
+// a version of json.Unmarshal that unmarshalls into a reflect.Value type
+func unmarshalIntoValue(data []byte, field reflect.Value) error {
+	fieldInterface := field.Addr().Interface()
+	return json.Unmarshal(data, &fieldInterface)
 }
 
 
@@ -99,6 +87,7 @@ func doozerWatch(c *doozer.Conn, glob string, rev int64) chan doozer.Event {
 				// FIXME: on doozer watch errors, the entire basin process
 				// must not go down. figure a way to report the error in
 				// console and silently proceed.
+				// besides, it is not the library's job to crash a program.
 				log.Fatal(err)
 				return
 			}
