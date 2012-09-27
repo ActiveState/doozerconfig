@@ -15,35 +15,27 @@ var Config struct {
     NatsUri          string `doozer:"cloud_controller/config/mbus"`
     RedisHost        string `doozer:"cloud_controller/config/redis/host"`
     RedisPort        int    `doozer:"cloud_controller/config/redis/port"`
-    RedisUri         string // not in doozer
     Verbose          bool   // not in doozer
 }
 
 func init() {
-    doozer, err := doozer.Dial(getDoozerURI())
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    headRev, err := doozer.Rev()
-    if err != nil {
-        log.Fatal(err)
-    }
-
+    doozer, err := doozer.Dial("localhost:8046")
+    
+    // map Config fields to "/proc/" + the struct tag above.
+    // eg: MaxRecordSize will be mapped to /proc/logyard/config/max_record_size
     cfg := doozerconfig.New(doozer, &Config, "/proc/")
-    err = cfg.Load()  // this populates the Config struct
-    if err != nil {
-        log.Fatal(err)
-    }
-    Config.RedisUri = fmt.Sprintf("%s:%d", Config.RedisHost, Config.RedisPort)
+
+    // load config values from doozer and assign to Config fields
+    err = cfg.Load()  
 
     // watch for live changes to doozer config
     go func() {
-        cfg.Monitor("/proc/logyard/config/*", headRev, func(name string, value interface{}, err error) {
-            if err != nil {
-                log.Fatal(err)
-            }
-            log.Printf("config changed in doozer; %s=%v\n", name, value)            
+        // Monitor automatically updates the fields of `Config`; 
+        // the callback function is called for every update or error.
+        headRev, err := doozer.Rev()
+        cfg.Monitor("/proc/logyard/config/*", headRev, 
+                    func(name string, value interface{}, err error) {
+            fmt.Printf("config changed in doozer; %s=%v\n", name, value)            
         }) 
     }()
 }
