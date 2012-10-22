@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ActiveState/doozer"
+	"path/filepath"
 	"reflect"
+	"strings"
 )
 
 type DoozerConfig struct {
 	conn         *doozer.Conn
+	loadRev      int64
 	configStruct interface{}
 	prefix       string
 	fields       map[string]reflect.Value
@@ -17,9 +20,9 @@ type DoozerConfig struct {
 
 // New returns a new DoozerConfig given doozer connection, struct object and
 // doozer path prefix.
-func New(conn *doozer.Conn, configStruct interface{}, prefix string) *DoozerConfig {
+func New(conn *doozer.Conn, loadRev int64, configStruct interface{}, prefix string) *DoozerConfig {
 	return &DoozerConfig{
-		conn, configStruct, prefix,
+		conn, loadRev, configStruct, prefix,
 		make(map[string]reflect.Value),
 		make(map[string]reflect.StructField)}
 }
@@ -32,63 +35,150 @@ func (c *DoozerConfig) Load() error {
 		field := elem.Field(i)
 		fieldType := elemType.Field(i)
 
-		// read json-encoded bytes from doozer
 		path := fieldType.Tag.Get("doozer")
 		if path == "" {
-			// this field is not supposed to be loaded from doozer because the
-			// user did not provide a struct tag with doozer key for it.
-			continue
+			continue // not a field to be loaded from doozer
 		}
 		path = c.prefix + path
-		data, rev, err := c.conn.Get(path, nil)
-		if err != nil {
-			return err
-		}
-		// for some reason, Get returns rev=0 if the path doesn't exist
-		if rev == 0 {
-			return fmt.Errorf("doozerconfig: key %s does not exist in doozer", path)
-		}
 
+		if fieldType.Type.Kind() == reflect.Map {
+			keyKind := fieldType.Type.Key().Kind()
+
+			if keyKind != reflect.String {
+				panic("map field must have string key type")
+			}
+
+			list, err := c.conn.Getdirinfo(path, c.loadRev, 0, -1)
+			if err != nil {
+				return fmt.Errorf("doozerconfig: error listing '%s': %s", path, err)
+			}
+			for _, fileinfo := range list {
+				if fileinfo.IsDir {
+					fmt.Printf("doozerconfig warning: ignoring child that is a dir - %s", fileinfo.Name)
+					continue
+				}
+				data, _, err := c.conn.Get(path+"/"+fileinfo.Name, &c.loadRev)
+				if err != nil {
+					return err
+				}
+				err = setJsonValueOnMap(field, fileinfo.Name, data)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			data, rev, err := c.conn.Get(path, nil)
+			if err != nil {
+				return fmt.Errorf("doozerconfig: error reading '%s' from doozer: %s", path, err)
+			}
+			// Get returns rev=0 if the path doesn't exist
+			if rev == 0 {
+				return fmt.Errorf("doozerconfig: key %s does not exist in doozer", path)
+			}
+
+			// decode the json and directly set the struct field		
+			err = setJsonValue(field, data)
+			if err != nil {
+				return fmt.Errorf("doozerconfig: error decoding json from doozer[%s]: %v", path, err)
+			}
+		}
 		c.fields[path] = field
 		c.fieldTypes[path] = fieldType
-
-		// decode the json and directly set the struct field		
-		err = unmarshalIntoValue(data, field)
-		if err != nil {
-			return fmt.Errorf("doozerconfig: error decoding json from doozer[%s]: %v", path, err)
-		}
 	}
 	return nil
 }
 
 // Monitor listens for config changes in doozer and updates the struct. A
 // callback function can be passed to get notified of the changes made and errors.
-func (c *DoozerConfig) Monitor(glob string, rev int64, callback func(string, interface{}, error)) {
+func (c *DoozerConfig) Monitor(glob string, callback func(string, interface{}, error)) {
 	if callback == nil {
 		panic("Monitor requires a non-nil callback argument")
 	}
-	doozerWatch(c.conn, glob, rev, func(evt doozer.Event, err error) {
+	doozerWatch(c.conn, glob, c.loadRev, func(evt doozer.Event, err error) {
 		if err != nil {
 			callback("", nil, err)
 			return // on doozer error, return immediately.
 		}
-		if field, ok := c.fields[evt.Path]; ok {
-			err := unmarshalIntoValue(evt.Body, field)
-			if err != nil {
-				// on json errors, continue monitoring for more changes, but
-				// report the error to the caller.
-				callback("", nil, err)
-			} else {
-				callback(c.fieldTypes[evt.Path].Name, field.Interface(), nil)
-			}
+		name, _, newValue, err := c.handleMutation(evt)
+		// TODO: use oldValue
+		if err != nil {
+			// on json errors, continue monitoring for more changes, but
+			// report the error to the caller.
+			callback("", nil, err)
+		} else if name != "" {
+			callback(name, newValue, nil)
 		}
 	})
 }
 
-// a version of json.Unmarshal that unmarshalls into a reflect.Value type
-func unmarshalIntoValue(data []byte, field reflect.Value) error {
+func (c *DoozerConfig) handleMutation(evt doozer.Event) (name string, oldValue, newValue interface{}, err error) {
+	if field, ok := c.fields[evt.Path]; ok && evt.IsSet() {
+		// Mutation of simple types
+		name := c.fieldTypes[evt.Path].Name
+		oldValue := field.Interface()
+		err := setJsonValue(field, evt.Body)
+		if err != nil {
+			return "", nil, nil, err
+		} else {
+			return name, oldValue, field.Interface(), nil
+		}
+	} else {
+		parent, name := filepath.Split(evt.Path)
+		if parent != "" {
+			parent = strings.TrimRight(parent, "/")
+			if field, ok := c.fields[parent]; ok {
+				// Mutation of map type
+				oldValue := field.Interface() // FIXME: may not copy the map
+
+				if evt.IsSet(){
+					err := setJsonValueOnMap(field, name, evt.Body)
+					if err != nil {
+						return "", nil, nil, err
+					}
+					return name, oldValue, field.Interface(), nil
+				}
+				if evt.IsDel() {
+					err := delMapKey(field, name)
+					if err != nil {
+						return "", nil, nil, err
+					}
+					return name, oldValue, field.Interface(), nil
+				}
+			}
+		}
+	}
+	// ignore; unknown path
+	return "", nil, nil, nil
+}
+
+// setJsonValue sets `field` to contain the json-decoded value
+func setJsonValue(field reflect.Value, data []byte) error {
 	fieldInterface := field.Addr().Interface()
 	return json.Unmarshal(data, &fieldInterface)
+}
+
+// setJsonValueOnMap sets dict[key] to `data` json-decoded to the same type.
+// dict must refer to non-nil map, else panic.
+func setJsonValueOnMap(dict reflect.Value, key string, data []byte) error {
+	elemType := dict.Type().Elem()
+	switch elemType.Kind() {
+	case reflect.String, reflect.Int:
+		// OK
+	default:
+		return fmt.Errorf("unsupported map value type")
+	}
+	value := reflect.New(elemType)
+	err := json.Unmarshal(data, value.Interface())
+	if err != nil {
+		return err
+	}
+	dict.SetMapIndex(reflect.ValueOf(key), value.Elem())
+	return nil
+}
+
+func delMapKey(dict reflect.Value, key string) error {
+	dict.SetMapIndex(reflect.ValueOf(key), reflect.Value{})
+	return nil
 }
 
 // monitor mutations on the given glob of keys and report them in the
