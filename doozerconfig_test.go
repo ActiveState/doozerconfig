@@ -4,7 +4,7 @@
 package doozerconfig
 
 import (
-	"fmt"
+	_ "fmt"
 	"github.com/ActiveState/doozer"
 	"testing"
 	"time"
@@ -83,8 +83,7 @@ func TestMapType(_t *testing.T) {
 	if _, ok := Config.Dict["bar"]; ok {
 		t.Fatalf("Config.bar was not deleted")
 	}
-
-	fmt.Printf("%+v\n", Config)
+	// fmt.Printf("%+v\n", Config)
 }
 
 // Test library
@@ -135,11 +134,11 @@ func (t *DoozerConfigTest) Monitor(pattern string) {
 	if t.cfg == nil {
 		t.Fatal("t.cfg is nil; Load() was not called?")
 	}
-	t.cfg.Monitor(pattern, func(name string, value interface{}, err error) {
+	t.cfg.Monitor(pattern, func(change *Change, err error) {
 		if err != nil {
 			t.Fatalf("Monitor returned an error: %s", err)
 		}
-		// fmt.Printf("** mutation: %s == %s\n", name, value)
+		// fmt.Printf("** mutation: %+v\n", change)
 	})
 }
 

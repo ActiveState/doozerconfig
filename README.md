@@ -37,8 +37,8 @@ func init() {
     // Watch for live changes to doozer config, and automatically
     // update the struct fields. The callback function can be used to
     // handle errors, and to get notified of changes.
-    go cfg.Monitor("/myapp/config/*", func(name string, value interface{}, err error) {
-        fmt.Printf("config changed in doozer; %s=%v\n", name, value)            
+    go cfg.Monitor("/myapp/config/*", func(change *Change, err error) {
+        fmt.Printf("config changed in doozer; %+v\n", change)            
     })
 }
 ```
@@ -61,6 +61,8 @@ func init() {
 
   - API: `Monitor` doesn't take a revision argument anymore. Instead
     it uses the one passed to `Load`.
+
+  - API: `Monitor`'s callback function accepts a new `Change` struct.
 
 - **Sep 25, 2012**:
 

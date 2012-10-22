@@ -88,39 +88,54 @@ func (c *DoozerConfig) Load() error {
 	return nil
 }
 
+// A Change type represents the kind of change that happened
+type ChangeType uint
+
+const (
+	SET ChangeType = iota
+	DELETE
+)
+
+// Change represents a change to the config struct
+type Change struct {
+	FieldName string // Field name that was changed
+	Type      ChangeType
+	Key       string      // If field is map, key value that changed
+	Value     interface{} // New value; if map, value is slotted at changed key
+}
+
 // Monitor listens for config changes in doozer and updates the struct. A
 // callback function can be passed to get notified of the changes made and errors.
-func (c *DoozerConfig) Monitor(glob string, callback func(string, interface{}, error)) {
+func (c *DoozerConfig) Monitor(glob string, callback func(*Change, error)) {
 	if callback == nil {
 		panic("Monitor requires a non-nil callback argument")
 	}
 	doozerWatch(c.conn, glob, c.loadRev, func(evt doozer.Event, err error) {
 		if err != nil {
-			callback("", nil, err)
+			callback(nil, err)
 			return // on doozer error, return immediately.
 		}
-		name, _, newValue, err := c.handleMutation(evt)
+		change, err := c.handleMutation(evt)
 		// TODO: use oldValue
 		if err != nil {
 			// on json errors, continue monitoring for more changes, but
 			// report the error to the caller.
-			callback("", nil, err)
-		} else if name != "" {
-			callback(name, newValue, nil)
+			callback(change, err)
+		} else if change != nil {
+			callback(change, nil)
 		}
 	})
 }
 
-func (c *DoozerConfig) handleMutation(evt doozer.Event) (name string, oldValue, newValue interface{}, err error) {
+func (c *DoozerConfig) handleMutation(evt doozer.Event) (*Change, error) {
 	if field, ok := c.fields[evt.Path]; ok && evt.IsSet() {
 		// Mutation of simple types
 		name := c.fieldTypes[evt.Path].Name
-		oldValue := field.Interface()
 		err := setJsonValue(field, evt.Body)
 		if err != nil {
-			return "", nil, nil, err
+			return nil, err
 		} else {
-			return name, oldValue, field.Interface(), nil
+			return &Change{name, SET, "", field.Interface()}, nil
 		}
 	} else {
 		parent, name := filepath.Split(evt.Path)
@@ -128,27 +143,25 @@ func (c *DoozerConfig) handleMutation(evt doozer.Event) (name string, oldValue, 
 			parent = strings.TrimRight(parent, "/")
 			if field, ok := c.fields[parent]; ok {
 				// Mutation of map type
-				oldValue := field.Interface() // FIXME: may not copy the map
-
 				if evt.IsSet() {
 					err := setJsonValueOnMap(field, name, evt.Body)
 					if err != nil {
-						return "", nil, nil, err
+						return nil, err
 					}
-					return name, oldValue, field.Interface(), nil
+					return &Change{name, SET, name, field.Interface()}, nil
 				}
 				if evt.IsDel() {
 					err := delMapKey(field, name)
 					if err != nil {
-						return "", nil, nil, err
+						return nil, err
 					}
-					return name, oldValue, field.Interface(), nil
+					return &Change{name, DELETE, name, nil}, nil
 				}
 			}
 		}
 	}
 	// ignore; unknown path
-	return "", nil, nil, nil
+	return nil, nil
 }
 
 // setJsonValue sets `field` to contain the json-decoded value
