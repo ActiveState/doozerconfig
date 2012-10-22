@@ -2,9 +2,9 @@
 
 ## What Is It?
 
-doozerconfig is a Go package for managing json-encoded configuration in doozer. Configuration is directly loaded into a Go struct (see example below). Using struct tags to define the doozer path, the package will automatically read, json-decode and assign the values to the corresponding struct fields. You can also watch for future changes to doozer config and have the struct automatically update.
+doozerconfig is a Go package for managing json-encoded configuration in doozer. Configuration in doozer is directly mapped to a Go struct. Configuration changes made in doozer are automatically reflected in the struct. For details, see the example below.
 
-In future, this package will also provide a way to write configuration back to doozer.
+API documentation - http://go.pkgdoc.org/github.com/srid/doozerconfig
 
 ## Installation
 
@@ -51,9 +51,11 @@ func init() {
   (unless it a map entry). Perhaps we should update the value to a
   default value (as specified in a `default` struct tag).
 
+- Writing configuration back to doozer is not supported yet.
+
 # Changes
 
-- **Oct, 2012**:
+- **Oct 22, 2012**:
 
   - Support for loading map types
 
@@ -62,4 +64,7 @@ func init() {
   - API: `Monitor` doesn't take a revision argument anymore. Instead
     it uses the one passed to `Load`.
 
+- **Sep 25, 2012**:
+
+  - Initial public release.
   
