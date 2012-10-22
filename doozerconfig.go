@@ -143,6 +143,7 @@ func (c *DoozerConfig) handleMutation(evt doozer.Event) (*Change, error) {
 			parent = strings.TrimRight(parent, "/")
 			if field, ok := c.fields[parent]; ok {
 				// Mutation of map type
+				fieldName := c.fieldTypes[parent].Name
 				if evt.IsSet() {
 					err := setJsonValueOnMap(field, name, evt.Body)
 					if err != nil {
@@ -155,7 +156,7 @@ func (c *DoozerConfig) handleMutation(evt doozer.Event) (*Change, error) {
 					if err != nil {
 						return nil, err
 					}
-					return &Change{name, DELETE, name, nil}, nil
+					return &Change{fieldName, DELETE, name, nil}, nil
 				}
 			}
 		}
