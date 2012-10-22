@@ -149,7 +149,7 @@ func (c *DoozerConfig) handleMutation(evt doozer.Event) (*Change, error) {
 					if err != nil {
 						return nil, err
 					}
-					return &Change{name, SET, name, field.Interface()}, nil
+					return &Change{fieldName, SET, name, field.Interface()}, nil
 				}
 				if evt.IsDel() {
 					err := delMapKey(field, name)
