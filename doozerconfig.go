@@ -64,6 +64,9 @@ func (c *DoozerConfig) Load() error {
 // Monitor listens for config changes in doozer and updates the struct. A
 // callback function can be passed to get notified of the changes made and errors.
 func (c *DoozerConfig) Monitor(glob string, rev int64, callback func(string, interface{}, error)) {
+	if callback == nil {
+		panic("Monitor requires a non-nil callback argument")
+	}
 	doozerWatch(c.conn, glob, rev, func(evt doozer.Event, err error) {
 		if err != nil {
 			callback("", nil, err)
