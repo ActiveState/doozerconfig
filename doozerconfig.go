@@ -112,7 +112,7 @@ func (c *DoozerConfig) Monitor(glob string, callback func(string, interface{}, e
 }
 
 func (c *DoozerConfig) handleMutation(evt doozer.Event) (name string, oldValue, newValue interface{}, err error) {
-	if field, ok := c.fields[evt.Path]; ok {
+	if field, ok := c.fields[evt.Path]; ok && evt.IsSet() {
 		// Mutation of simple types
 		name := c.fieldTypes[evt.Path].Name
 		oldValue := field.Interface()
@@ -130,16 +130,31 @@ func (c *DoozerConfig) handleMutation(evt doozer.Event) (name string, oldValue, 
 				// Mutation of map type
 				oldValue := field.Interface() // FIXME: may not copy the map
 
-				err := setJsonValueOnMap(field, name, evt.Body)
-				if err != nil {
-					return "", nil, nil, err
+				if evt.IsSet(){
+					err := setJsonValueOnMap(field, name, evt.Body)
+					if err != nil {
+						return "", nil, nil, err
+					}
+					return name, oldValue, field.Interface(), nil
 				}
-				return name, oldValue, field.Interface(), nil
+				if evt.IsDel() {
+					err := delMapKey(field, name)
+					if err != nil {
+						return "", nil, nil, err
+					}
+					return name, oldValue, field.Interface(), nil
+				}
 			}
 		}
 	}
 	// ignore; unknown path
 	return "", nil, nil, nil
+}
+
+// setJsonValue sets `field` to contain the json-decoded value
+func setJsonValue(field reflect.Value, data []byte) error {
+	fieldInterface := field.Addr().Interface()
+	return json.Unmarshal(data, &fieldInterface)
 }
 
 // setJsonValueOnMap sets dict[key] to `data` json-decoded to the same type.
@@ -161,10 +176,9 @@ func setJsonValueOnMap(dict reflect.Value, key string, data []byte) error {
 	return nil
 }
 
-// setJsonValue sets `field` to contain the json-decoded value
-func setJsonValue(field reflect.Value, data []byte) error {
-	fieldInterface := field.Addr().Interface()
-	return json.Unmarshal(data, &fieldInterface)
+func delMapKey(dict reflect.Value, key string) error {
+	dict.SetMapIndex(reflect.ValueOf(key), reflect.Value{})
+	return nil
 }
 
 // monitor mutations on the given glob of keys and report them in the

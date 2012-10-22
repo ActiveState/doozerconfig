@@ -4,7 +4,7 @@
 package doozerconfig
 
 import (
-	_ "fmt"
+	"fmt"
 	"github.com/ActiveState/doozer"
 	"testing"
 	"time"
@@ -62,11 +62,29 @@ func TestMapType(_t *testing.T) {
 	}
 	// test mutation on map fields
 	t.Monitor("/dict/*")
+
+	// .. when a key is changed:
 	t.DoozerSet("/dict/bar", `"you"`)
 	time.Sleep(100 * time.Millisecond)
 	if Config.Dict["bar"] != "you" {
 		t.Fatalf("Config.Bar did not change after mutation; value=%s", Config.Dict["bar"])
 	}
+
+	// .. when a key is added:
+	t.DoozerSet("/dict/new", `"hello again"`)
+	time.Sleep(100 * time.Millisecond)
+	if Config.Dict["new"] != "hello again" {
+		t.Fatalf("Config.new is not set")
+	}
+
+	// .. when a key is deleted:
+	t.DoozerDel("/dict/bar")
+	time.Sleep(100 * time.Millisecond)
+	if _, ok := Config.Dict["bar"]; ok {
+		t.Fatalf("Config.bar was not deleted")
+	}
+	
+	fmt.Printf("%+v\n", Config)
 }
 
 // Test library
@@ -131,5 +149,12 @@ func (t *DoozerConfigTest) DoozerSet(path, value string) {
 	_, err := t.doozer.Set(path, 99999, []byte(value))
 	if err != nil {
 		t.Fatalf("failed to write to doozer: %s", err)
+	}
+}
+
+func (t *DoozerConfigTest) DoozerDel(path string) {
+	err := t.doozer.Del(path, 99999)
+	if err != nil {
+		t.Fatalf("failed to delete a file in doozer: %s", err)
 	}
 }

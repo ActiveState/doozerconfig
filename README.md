@@ -18,7 +18,7 @@ $ go get github.com/srid/doozerconfig
 var Config struct {
     MaxItems  int                `doozer:"config/max_items"`
     DbUri     string             `doozer:"config/db_uri"`
-    Admins    map[string]string  `doozer:"config/admins"`   
+    EnvVars   map[string]string  `doozer:"config/envvars"`
     Verbose   bool   // not in doozer
 }
 
@@ -28,11 +28,11 @@ func init() {
     
     // map Config fields to "/myapp/" + the struct tag above.
     // eg: MaxItems will be mapped to /myapp/config/max_items
-    //     Admins will be mapped to /myapp/config/admins/*
-    cfg := doozerconfig.New(doozer, rev, &Config, "/proc/")
+    //     EnvVars will be mapped to /myapp/config/envvars/*
+    cfg := doozerconfig.New(doozer, rev, &Config, "/myapp/")
 
     // load config values from doozer and assign to Config fields
-    err = cfg.Load()  
+    _ = cfg.Load()  
 
     // watch for live changes to doozer config
     go func() {
@@ -45,13 +45,21 @@ func init() {
 }
 ```
 
+# Notes
+
+- If a file is deleted from doozer, the config struct is not updated
+  (unless it a map entry). Perhaps we should update the value to a
+  default value (as specified in a `default` struct tag).
+
 # Changes
 
-- *Oct, 2012*:
+- **Oct, 2012**:
 
-  - Support for loading maps
+  - Support for loading map types
 
-  - `Load` now takes a mandatory doozer revision. `Monitor` doesn't
-  take a revision argument, instead uses the one passed to `Load`.
+  - API: `Load` now takes doozer revision as a mandatory argument.
+
+  - API: `Monitor` doesn't take a revision argument anymore. Instead
+    it uses the one passed to `Load`.
 
   
