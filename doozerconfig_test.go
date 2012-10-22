@@ -36,11 +36,36 @@ func TestMonitor(_t *testing.T) {
 		Foo int `doozer:"/foo"`
 	}
 	t.Load(&Config, "")
-	t.Monitor()
+	t.Monitor("/foo*")
 	t.DoozerSet("/foo", "69")
 	time.Sleep(100 * time.Millisecond)
 	if Config.Foo != 69 {
-		t.Fatalf("Config.Foo was not modified")
+		t.Fatalf("Config.Foo was not modified; value=%s", Config.Foo)
+	}
+}
+
+func TestMapType(_t *testing.T) {
+	t := NewDoozerConfigTest("maptype", _t)
+	defer t.Close()
+	t.DoozerSet("/dict/foo", `"hello"`)
+	t.DoozerSet("/dict/bar", `"world"`)
+	var Config struct {
+		Dict map[string]string `doozer:"/dict"`
+	}
+	Config.Dict = make(map[string]string)
+	t.Load(&Config, "")
+	if Config.Dict["foo"] != "hello" {
+		t.Fatalf("Config.Foo is not set")
+	}
+	if Config.Dict["bar"] != "world" {
+		t.Fatalf("Config.Bar is not set")
+	}
+	// test mutation on map fields
+	t.Monitor("/dict/*")
+	t.DoozerSet("/dict/bar", `"you"`)
+	time.Sleep(100 * time.Millisecond)
+	if Config.Dict["bar"] != "you" {
+		t.Fatalf("Config.Bar did not change after mutation; value=%s", Config.Dict["bar"])
 	}
 }
 
@@ -51,10 +76,11 @@ type DoozerConfigTest struct {
 	*testing.T
 	doozer *doozer.Conn
 	cfg    *DoozerConfig
+	rev    int64
 }
 
 func NewDoozerConfigTest(name string, t *testing.T) *DoozerConfigTest {
-	tt := DoozerConfigTest{name, t, nil, nil}
+	tt := DoozerConfigTest{name, t, nil, nil, 0}
 	doozer, err := doozer.Dial("localhost:8046")
 	if err != nil {
 		t.Fatalf("cannot connect to doozerd: %s", err)
@@ -71,8 +97,14 @@ func (t *DoozerConfigTest) Load(structValue interface{}, prefix string) {
 	if t.cfg != nil {
 		t.Fatalf("Load() was already called")
 	}
-	t.cfg = New(t.doozer, structValue, prefix)
-	err := t.cfg.Load()
+
+	headRev, err := t.doozer.Rev()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.cfg = New(t.doozer, headRev, structValue, prefix)
+	t.rev = headRev
+	err = t.cfg.Load()
 	if err != nil {
 		t.Fatalf("failed to populate the struct from doozer: %s", err)
 	}
@@ -81,19 +113,16 @@ func (t *DoozerConfigTest) Load(structValue interface{}, prefix string) {
 	}
 }
 
-func (t *DoozerConfigTest) Monitor() {
-	headRev, err := t.doozer.Rev()
-	if err != nil {
-		t.Fatal(err)
-	}
+func (t *DoozerConfigTest) Monitor(pattern string) {
 	if t.cfg == nil {
 		t.Fatal("t.cfg is nil; Load() was not called?")
 	}
 	go func() {
-		t.cfg.Monitor("/foo*", headRev, func(name string, value interface{}, err error) {
+		t.cfg.Monitor(pattern, func(name string, value interface{}, err error) {
 			if err != nil {
 				t.Fatalf("Monitor returned an error: %s", err)
 			}
+			// fmt.Printf("** mutation: %s == %s\n", name, value)
 		})
 	}()
 }
