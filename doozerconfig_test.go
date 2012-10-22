@@ -36,7 +36,7 @@ func TestMonitor(_t *testing.T) {
 		Foo int `doozer:"/foo"`
 	}
 	t.Load(&Config, "")
-	t.Monitor("/foo*")
+	go t.Monitor("/foo*")
 	t.DoozerSet("/foo", "69")
 	time.Sleep(100 * time.Millisecond)
 	if Config.Foo != 69 {
@@ -61,7 +61,7 @@ func TestMapType(_t *testing.T) {
 		t.Fatalf("Config.Bar is not set")
 	}
 	// test mutation on map fields
-	t.Monitor("/dict/*")
+	go t.Monitor("/dict/*")
 
 	// .. when a key is changed:
 	t.DoozerSet("/dict/bar", `"you"`)
@@ -83,7 +83,7 @@ func TestMapType(_t *testing.T) {
 	if _, ok := Config.Dict["bar"]; ok {
 		t.Fatalf("Config.bar was not deleted")
 	}
-	
+
 	fmt.Printf("%+v\n", Config)
 }
 
@@ -135,14 +135,12 @@ func (t *DoozerConfigTest) Monitor(pattern string) {
 	if t.cfg == nil {
 		t.Fatal("t.cfg is nil; Load() was not called?")
 	}
-	go func() {
-		t.cfg.Monitor(pattern, func(name string, value interface{}, err error) {
-			if err != nil {
-				t.Fatalf("Monitor returned an error: %s", err)
-			}
-			// fmt.Printf("** mutation: %s == %s\n", name, value)
-		})
-	}()
+	t.cfg.Monitor(pattern, func(name string, value interface{}, err error) {
+		if err != nil {
+			t.Fatalf("Monitor returned an error: %s", err)
+		}
+		// fmt.Printf("** mutation: %s == %s\n", name, value)
+	})
 }
 
 func (t *DoozerConfigTest) DoozerSet(path, value string) {

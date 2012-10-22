@@ -26,22 +26,20 @@ func init() {
     doozer, _ := doozer.Dial("localhost:8046")
     rev, _ := doozer.Rev()
     
-    // map Config fields to "/myapp/" + the struct tag above.
+    // Map Config fields to "/myapp/" + the struct tag above.
     // eg: MaxItems will be mapped to /myapp/config/max_items
     //     EnvVars will be mapped to /myapp/config/envvars/*
     cfg := doozerconfig.New(doozer, rev, &Config, "/myapp/")
 
-    // load config values from doozer and assign to Config fields
+    // Load config values from doozer and assign to Config fields
     _ = cfg.Load()  
 
-    // watch for live changes to doozer config
-    go func() {
-        // Monitor automatically updates the fields of `Config`; 
-        // the callback function is called for every update or error.
-        cfg.Monitor("/myapp/config/*", func(name string, value interface{}, err error) {
-            fmt.Printf("config changed in doozer; %s=%v\n", name, value)            
-        }) 
-    }()
+    // Watch for live changes to doozer config, and automatically
+    // update the struct fields. The callback function can be used to
+    // handle errors, and to get notified of changes.
+    go cfg.Monitor("/myapp/config/*", func(name string, value interface{}, err error) {
+        fmt.Printf("config changed in doozer; %s=%v\n", name, value)            
+    })
 }
 ```
 

@@ -130,7 +130,7 @@ func (c *DoozerConfig) handleMutation(evt doozer.Event) (name string, oldValue, 
 				// Mutation of map type
 				oldValue := field.Interface() // FIXME: may not copy the map
 
-				if evt.IsSet(){
+				if evt.IsSet() {
 					err := setJsonValueOnMap(field, name, evt.Body)
 					if err != nil {
 						return "", nil, nil, err
