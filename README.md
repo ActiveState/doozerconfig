@@ -4,12 +4,12 @@
 
 doozerconfig is a Go package for managing json-encoded configuration in doozer. Configuration in doozer is directly mapped to a Go struct. Configuration changes made in doozer are automatically reflected in the struct. For details, see the example below.
 
-API documentation - http://go.pkgdoc.org/github.com/srid/doozerconfig
+[API documentation](http://godoc.org/github.com/ActiveState/doozerconfig)
 
 ## Installation
 
 ```bash
-$ go get github.com/srid/doozerconfig
+$ go get github.com/ActiveState/doozerconfig
 ```
 
 ## Example
